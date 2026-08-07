@@ -14,6 +14,19 @@ app = FastAPI(
 # In-memory job state store
 jobs_db: Dict[str, dict] = {}
 
+VOICE_GENDER = {
+    "en-US-ChristopherNeural": "male",
+    "en-US-GuyNeural": "male",
+    "en-GB-RyanNeural": "male",
+    "en-IN-PrabhatNeural": "male",
+    "en-US-JennyNeural": "female",
+    "en-GB-SoniaNeural": "female",
+    "en-IN-NeerjaNeural": "female",
+}
+
+
+def get_voice_gender(voice: str):
+    return VOICE_GENDER.get(voice, "neutral")
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -41,11 +54,14 @@ def generate_avatar(
     background_tasks: BackgroundTasks,
     face_image: UploadFile = File(...),
     audio: UploadFile = File(...),
+    voice: str = Form("en-US-ChristopherNeural"),
     model: str = Form("latentsync"),
     enhancer: bool = Form(True),
 ):
+
     job_id = f"job_{uuid.uuid4().hex[:12]}"
 
+    gender = get_voice_gender(voice)
     # Store initial state
     jobs_db[job_id] = {
         "job_id": job_id,
@@ -55,6 +71,8 @@ def generate_avatar(
         "created_at": datetime.utcnow().isoformat() + "Z",
         "completed_at": None,
         "output_url": None,
+    "voice": voice,
+    "gender": gender,
     }
 
     # Trigger background work simulation
