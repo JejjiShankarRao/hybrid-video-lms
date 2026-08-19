@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
@@ -24,9 +24,48 @@ VOICE_GENDER = {
     "en-IN-NeerjaNeural": "female",
 }
 
+# The repository has no provider-specific avatar catalog. These are the
+# service-level gender categories used to select and validate avatars.
+MALE_AVATAR = "male"
+FEMALE_AVATAR = "female"
+SUPPORTED_AVATARS = {MALE_AVATAR, FEMALE_AVATAR}
+DEFAULT_AVATAR = MALE_AVATAR
 
 def get_voice_gender(voice: str):
     return VOICE_GENDER.get(voice, "neutral")
+
+
+def get_avatar_for_voice(voice: str, avatar: Optional[str] = None):
+    gender = get_voice_gender(voice)
+    resolved_gender = DEFAULT_AVATAR if gender == "neutral" else gender
+
+    if avatar is None:
+        return resolved_gender
+
+    normalized_avatar = avatar.strip().lower()
+    if normalized_avatar not in SUPPORTED_AVATARS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported avatar '{avatar}'. Supported avatars: "
+                + ", ".join(sorted(SUPPORTED_AVATARS))
+            ),
+        )
+
+    if normalized_avatar != resolved_gender:
+        if resolved_gender == "male":
+            raise HTTPException(
+                status_code=400,
+                detail="male voice + female avatar is not supported; use a male avatar",
+            )
+        if resolved_gender == "female":
+            raise HTTPException(
+                status_code=400,
+                detail="female voice + male avatar is not supported; use a female avatar",
+            )
+
+    return normalized_avatar
+
 
 class JobStatusResponse(BaseModel):
     job_id: str
@@ -34,6 +73,9 @@ class JobStatusResponse(BaseModel):
     progress: float
     estimated_time_remaining: float
     created_at: str
+    voice: Optional[str] = None
+    gender: Optional[str] = None
+    avatar: Optional[str] = None
     completed_at: Optional[str] = None
     output_url: Optional[str] = None
 
@@ -55,33 +97,43 @@ def generate_avatar(
     face_image: UploadFile = File(...),
     audio: UploadFile = File(...),
     voice: str = Form("en-US-ChristopherNeural"),
+    avatar: Optional[str] = Form(None),
     model: str = Form("latentsync"),
     enhancer: bool = Form(True),
 ):
-
-    job_id = f"job_{uuid.uuid4().hex[:12]}"
+    if voice not in VOICE_GENDER:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported voice '{voice}'. Supported voices: "
+                + ", ".join(sorted(VOICE_GENDER))
+            ),
+        )
 
     gender = get_voice_gender(voice)
-    # Store initial state
+    selected_avatar = get_avatar_for_voice(voice, avatar)
+    job_id = f"job_{uuid.uuid4().hex[:12]}"
     jobs_db[job_id] = {
         "job_id": job_id,
         "status": "queued",
         "progress": 0.0,
         "estimated_time_remaining": 30.0,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "completed_at": None,
         "output_url": None,
-    "voice": voice,
-    "gender": gender,
+        "voice": voice,
+        "gender": gender,
+        "avatar": selected_avatar,
     }
-
-    # Trigger background work simulation
     background_tasks.add_task(dummy_rendering_task, job_id)
 
     return {
         "job_id": job_id,
         "status": "queued",
         "created_at": jobs_db[job_id]["created_at"],
+        "voice": voice,
+        "gender": gender,
+        "avatar": selected_avatar,
         "message": "Avatar rendering job successfully queued.",
     }
 
