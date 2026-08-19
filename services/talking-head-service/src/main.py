@@ -31,6 +31,7 @@ FEMALE_AVATAR = "female"
 SUPPORTED_AVATARS = {MALE_AVATAR, FEMALE_AVATAR}
 DEFAULT_AVATAR = MALE_AVATAR
 
+
 def get_voice_gender(voice: str):
     return VOICE_GENDER.get(voice, "neutral")
 
